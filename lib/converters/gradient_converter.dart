@@ -7,8 +7,9 @@ import 'converter.dart';
 /// Supports:
 /// - `linear-gradient(direction, color-stop, ...)`
 /// - `radial-gradient(shape, color-stop, ...)`
-/// - `conic-gradient(from angle, color-stop, ...)` → SweepGradient
+/// - `conic-gradient(from angle at x y, color-stop, ...)` -> SweepGradient
 /// - `repeating-linear-gradient(...)` / `repeating-radial-gradient(...)`
+/// - Multiple stacked gradients (outputs a list)
 class GradientConverter extends CssPropertyConverter {
   @override
   Set<String> get supportedProperties => {
@@ -28,10 +29,35 @@ class GradientConverter extends CssPropertyConverter {
       return ConversionResult.unsupported(property);
     }
 
-    final dartCode = _convertGradient(text);
-    if (dartCode == null) return ConversionResult.unsupported(property);
+    // Split multiple stacked gradients at top-level commas
+    final gradientTexts = _splitTopLevelGradients(text);
+    final converted = <String>[];
 
-    return ConversionResult(property: property, dartCode: 'gradient: $dartCode');
+    for (final g in gradientTexts) {
+      final result = _convertSingleGradient(g.trim());
+      if (result != null) converted.add(result);
+    }
+
+    if (converted.isEmpty) return ConversionResult.unsupported(property);
+
+    if (converted.length == 1) {
+      return ConversionResult(
+        property: property,
+        dartCode: 'gradient: ${converted.first}',
+      );
+    }
+
+    // Multiple gradients — output as a comment + list
+    final buffer = StringBuffer('// Multiple stacked gradients (render with ShaderMask or Stack)\n');
+    for (var i = 0; i < converted.length; i++) {
+      buffer.write('// [${i + 1}] ${converted[i]}');
+      if (i < converted.length - 1) buffer.write(',');
+      buffer.writeln();
+    }
+    return ConversionResult(
+      property: property,
+      dartCode: buffer.toString().trimRight(),
+    );
   }
 
   bool _isGradient(String text) {
@@ -41,7 +67,40 @@ class GradientConverter extends CssPropertyConverter {
         lower.contains('conic-gradient');
   }
 
-  String? _convertGradient(String text) {
+  /// Split stacked gradients. Top-level commas separate gradients,
+  /// but commas inside function calls (rgba, etc.) must be preserved.
+  List<String> _splitTopLevelGradients(String text) {
+    final results = <String>[];
+    var depth = 0;
+    var start = 0;
+
+    for (var i = 0; i < text.length; i++) {
+      if (text[i] == '(') depth++;
+      if (text[i] == ')') depth--;
+      if (text[i] == ',' && depth == 0) {
+        final segment = text.substring(start, i).trim();
+        // Only split if next segment starts a new gradient function
+        final rest = text.substring(i + 1).trim().toLowerCase();
+        if (_startsWithGradient(rest)) {
+          results.add(segment);
+          start = i + 1;
+        }
+      }
+    }
+    results.add(text.substring(start).trim());
+    return results.where((s) => s.isNotEmpty).toList();
+  }
+
+  bool _startsWithGradient(String text) {
+    return text.startsWith('linear-gradient') ||
+        text.startsWith('radial-gradient') ||
+        text.startsWith('conic-gradient') ||
+        text.startsWith('repeating-linear-gradient') ||
+        text.startsWith('repeating-radial-gradient') ||
+        text.startsWith('repeating-conic-gradient');
+  }
+
+  String? _convertSingleGradient(String text) {
     final lower = text.toLowerCase().trim();
 
     if (lower.startsWith('repeating-linear-gradient')) {
@@ -65,13 +124,18 @@ class GradientConverter extends CssPropertyConverter {
   }
 
   /// Parse the arguments inside the outermost parentheses of a gradient function.
-  String _extractArgs(String text) {
+  String _extractFunctionArgs(String text) {
     final openParen = text.indexOf('(');
-    final closeParen = text.lastIndexOf(')');
-    if (openParen == -1 || closeParen == -1 || closeParen <= openParen) {
-      return '';
+    // Find the matching closing paren (not just the last one)
+    var depth = 0;
+    for (var i = openParen; i < text.length; i++) {
+      if (text[i] == '(') depth++;
+      if (text[i] == ')') {
+        depth--;
+        if (depth == 0) return text.substring(openParen + 1, i).trim();
+      }
     }
-    return text.substring(openParen + 1, closeParen).trim();
+    return '';
   }
 
   /// Split top-level comma-separated arguments, respecting nested parentheses.
@@ -92,14 +156,13 @@ class GradientConverter extends CssPropertyConverter {
   }
 
   String? _convertLinearGradient(String text, {bool repeating = false}) {
-    final args = _splitArgs(_extractArgs(text));
+    final args = _splitArgs(_extractFunctionArgs(text));
     if (args.isEmpty) return null;
 
     String? beginAlign;
     String? endAlign;
     List<String> colorStopArgs;
 
-    // Check if first arg is a direction
     final direction = _parseDirection(args.first);
     if (direction != null) {
       beginAlign = direction.$1;
@@ -126,12 +189,11 @@ class GradientConverter extends CssPropertyConverter {
   }
 
   String? _convertRadialGradient(String text, {bool repeating = false}) {
-    final args = _splitArgs(_extractArgs(text));
+    final args = _splitArgs(_extractFunctionArgs(text));
     if (args.isEmpty) return null;
 
     List<String> colorStopArgs;
 
-    // Check if first arg is a shape/size keyword (e.g., "circle", "ellipse", "closest-side")
     final first = args.first.toLowerCase().trim();
     if (_isRadialShapeKeyword(first)) {
       colorStopArgs = args.sublist(1);
@@ -152,26 +214,43 @@ class GradientConverter extends CssPropertyConverter {
   }
 
   String? _convertConicGradient(String text) {
-    final args = _splitArgs(_extractArgs(text));
+    final args = _splitArgs(_extractFunctionArgs(text));
     if (args.isEmpty) return null;
 
     List<String> colorStopArgs;
     String? startAngle;
+    String? centerX;
+    String? centerY;
 
-    // Check for "from <angle>" prefix
+    // Parse "from <angle> at <x> <y>" prefix
     final first = args.first.toLowerCase().trim();
     if (first.startsWith('from ')) {
-      startAngle = _parseAngle(first.replaceFirst('from ', '').trim());
+      final config = first.replaceFirst('from ', '').trim();
+      final atIndex = config.indexOf(' at ');
+      if (atIndex != -1) {
+        final anglePart = config.substring(0, atIndex).trim();
+        final positionPart = config.substring(atIndex + 4).trim();
+        startAngle = _parseAngle(anglePart);
+        final posParts = positionPart.split(RegExp(r'\s+'));
+        if (posParts.length >= 2) {
+          centerX = _parsePercentToAlignment(posParts[0]);
+          centerY = _parsePercentToAlignment(posParts[1]);
+        }
+      } else {
+        startAngle = _parseAngle(config);
+      }
       colorStopArgs = args.sublist(1);
     } else {
       colorStopArgs = args;
     }
 
-    final colorStops = _parseColorStops(colorStopArgs);
+    final colorStops = _parseColorStops(colorStopArgs, allowDegStops: true);
     if (colorStops.colors.isEmpty) return null;
 
     final parts = <String>[
       if (startAngle != null) 'startAngle: $startAngle',
+      if (centerX != null && centerY != null)
+        'center: Alignment($centerX, $centerY)',
       'colors: [${colorStops.colors.join(', ')}]',
       if (colorStops.stops.isNotEmpty)
         'stops: [${colorStops.stops.join(', ')}]',
@@ -179,11 +258,19 @@ class GradientConverter extends CssPropertyConverter {
     return 'SweepGradient(${parts.join(', ')})';
   }
 
+  /// Convert a percentage like "50.82%" to an Alignment value (-1 to 1).
+  String? _parsePercentToAlignment(String text) {
+    if (!text.endsWith('%')) return null;
+    final value = double.tryParse(text.replaceAll('%', ''));
+    if (value == null) return null;
+    // 0% = -1.0, 50% = 0.0, 100% = 1.0
+    return ((value / 50) - 1).toStringAsFixed(2);
+  }
+
   /// Parse a CSS direction into Flutter Alignment begin/end.
   (String, String)? _parseDirection(String arg) {
     final lower = arg.toLowerCase().trim();
 
-    // "to <side>" syntax
     if (lower.startsWith('to ')) {
       final target = lower.substring(3).trim();
       return switch (target) {
@@ -199,7 +286,6 @@ class GradientConverter extends CssPropertyConverter {
       };
     }
 
-    // Angle syntax (e.g., "180deg", "0.5turn")
     final angle = _parseAngleDeg(lower);
     if (angle != null) {
       return _angleToAlignments(angle);
@@ -208,7 +294,6 @@ class GradientConverter extends CssPropertyConverter {
     return null;
   }
 
-  /// Parse a CSS angle string to degrees.
   double? _parseAngleDeg(String text) {
     final lower = text.trim().toLowerCase();
     if (lower.endsWith('deg')) {
@@ -229,7 +314,6 @@ class GradientConverter extends CssPropertyConverter {
     return null;
   }
 
-  /// Parse a CSS angle to a Dart radians expression string.
   String? _parseAngle(String text) {
     final deg = _parseAngleDeg(text);
     if (deg == null) return null;
@@ -237,10 +321,7 @@ class GradientConverter extends CssPropertyConverter {
     return rad.toStringAsFixed(4);
   }
 
-  /// Map a CSS gradient angle (in degrees) to Flutter begin/end Alignments.
-  /// CSS: 0deg = to top, 90deg = to right, 180deg = to bottom (default).
   (String, String) _angleToAlignments(double deg) {
-    // Normalize to 0-360
     deg = deg % 360;
     if (deg < 0) deg += 360;
 
@@ -262,8 +343,6 @@ class GradientConverter extends CssPropertyConverter {
 
   double _sin(double deg) {
     const pi = 3.14159265;
-    // CSS angle: 0deg = to top (12 o'clock), clockwise.
-    // Convert to standard math angle: subtract 90, negate for clockwise.
     final rad = (deg - 90) * pi / 180;
     return _sinRad(rad);
   }
@@ -275,7 +354,6 @@ class GradientConverter extends CssPropertyConverter {
   }
 
   double _sinRad(double x) {
-    // Taylor series approximation, good enough for code generation
     x = x % (2 * 3.14159265);
     double result = 0, term = x;
     for (int n = 1; n <= 10; n++) {
@@ -288,42 +366,33 @@ class GradientConverter extends CssPropertyConverter {
   double _cosRad(double x) => _sinRad(x + 3.14159265 / 2);
 
   bool _isRadialShapeKeyword(String text) {
-    final keywords = {
-      'circle',
-      'ellipse',
-      'closest-side',
-      'closest-corner',
-      'farthest-side',
-      'farthest-corner',
+    const keywords = {
+      'circle', 'ellipse', 'closest-side',
+      'closest-corner', 'farthest-side', 'farthest-corner',
     };
     return keywords.any((k) => text.contains(k));
   }
 
   /// Parse color stops from a list of comma-separated arguments.
-  _ColorStops _parseColorStops(List<String> args) {
+  /// Each arg may be like "rgba(0, 0, 0, 0.5) 30.4%" or "#DF0747 180deg".
+  _ColorStops _parseColorStops(List<String> args, {bool allowDegStops = false}) {
     final colors = <String>[];
     final stops = <String>[];
     var hasExplicitStops = false;
 
     for (final arg in args) {
-      final parts = arg.trim().split(RegExp(r'\s+'));
-      final colorStr = parts.first;
-      final dartColor = _colorToDart(colorStr);
-      if (dartColor == null) continue;
+      final parsed = _parseColorStop(arg.trim(), allowDegStops: allowDegStops);
+      if (parsed == null) continue;
 
-      colors.add(dartColor);
-      if (parts.length > 1) {
-        final stop = _parseStopPosition(parts.last);
-        if (stop != null) {
-          stops.add(stop);
-          hasExplicitStops = true;
-        }
+      colors.add(parsed.color);
+      if (parsed.stop != null) {
+        stops.add(parsed.stop!);
+        hasExplicitStops = true;
       } else {
-        stops.add(''); // placeholder
+        stops.add('');
       }
     }
 
-    // If some stops are explicit, fill in the blanks with even distribution
     if (hasExplicitStops && stops.length == colors.length) {
       final resolved = <String>[];
       for (var i = 0; i < stops.length; i++) {
@@ -343,10 +412,52 @@ class GradientConverter extends CssPropertyConverter {
     return _ColorStops(colors, []);
   }
 
-  String? _parseStopPosition(String text) {
-    if (text.endsWith('%')) {
-      final value = double.tryParse(text.replaceAll('%', ''));
+  /// Parse a single color stop like "rgba(0, 0, 0, 0.5) 30.4%" or "#FF0000 50%".
+  _ColorStop? _parseColorStop(String text, {bool allowDegStops = false}) {
+    // If it starts with a function like rgba(...), split after the closing paren
+    if (text.contains('(')) {
+      final closeParen = _findMatchingParen(text);
+      if (closeParen == -1) return null;
+      final colorPart = text.substring(0, closeParen + 1).trim();
+      final rest = text.substring(closeParen + 1).trim();
+      final dartColor = _colorToDart(colorPart);
+      if (dartColor == null) return null;
+      final stop = rest.isNotEmpty ? _parseStopPosition(rest, allowDeg: allowDegStops) : null;
+      return _ColorStop(dartColor, stop);
+    }
+
+    // Simple value like "#FF0000 50%" or "red 30%"
+    final parts = text.split(RegExp(r'\s+'));
+    final dartColor = _colorToDart(parts.first);
+    if (dartColor == null) return null;
+    final stop = parts.length > 1
+        ? _parseStopPosition(parts.last, allowDeg: allowDegStops)
+        : null;
+    return _ColorStop(dartColor, stop);
+  }
+
+  /// Find the index of the closing paren matching the first '(' in text.
+  int _findMatchingParen(String text) {
+    var depth = 0;
+    for (var i = 0; i < text.length; i++) {
+      if (text[i] == '(') depth++;
+      if (text[i] == ')') {
+        depth--;
+        if (depth == 0) return i;
+      }
+    }
+    return -1;
+  }
+
+  String? _parseStopPosition(String text, {bool allowDeg = false}) {
+    final trimmed = text.trim();
+    if (trimmed.endsWith('%')) {
+      final value = double.tryParse(trimmed.replaceAll('%', ''));
       if (value != null) return (value / 100).toStringAsFixed(2);
+    }
+    if (allowDeg && trimmed.endsWith('deg')) {
+      final value = double.tryParse(trimmed.replaceAll('deg', ''));
+      if (value != null) return (value / 360).toStringAsFixed(4);
     }
     return null;
   }
@@ -391,7 +502,10 @@ class GradientConverter extends CssPropertyConverter {
 
     // rgb/rgba function
     if (lower.startsWith('rgb')) {
-      final inner = _extractArgs(lower);
+      final openParen = lower.indexOf('(');
+      final closeParen = lower.lastIndexOf(')');
+      if (openParen == -1 || closeParen == -1) return null;
+      final inner = lower.substring(openParen + 1, closeParen);
       final values = inner
           .split(RegExp(r'[,/\s]+'))
           .map((s) => s.trim())
@@ -410,6 +524,13 @@ class GradientConverter extends CssPropertyConverter {
 
     return null;
   }
+}
+
+class _ColorStop {
+  final String color;
+  final String? stop;
+
+  _ColorStop(this.color, this.stop);
 }
 
 class _ColorStops {
