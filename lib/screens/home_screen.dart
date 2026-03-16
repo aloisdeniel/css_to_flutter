@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:re_highlight/re_highlight.dart';
 import 'package:re_highlight/languages/css.dart';
 import 'package:re_highlight/languages/dart.dart';
-import 'package:re_highlight/styles/atom-one-dark.dart';
+import 'package:re_highlight/styles/tokyo-night-dark.dart';
 
 import '../converters/css_to_dart_converter.dart';
 
@@ -91,17 +91,17 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF1E1E2E),
+      backgroundColor: const Color(0xFF1A1B26),
       appBar: AppBar(
-        backgroundColor: const Color(0xFF181825),
+        backgroundColor: const Color(0xFF16161E),
         title: const Row(
           children: [
-            Icon(Icons.transform, color: Color(0xFFCBA6F7)),
+            Icon(Icons.transform, color: Color(0xFFBB9AF7)),
             SizedBox(width: 8),
             Text(
               'CSS to Flutter',
               style: TextStyle(
-                color: Color(0xFFCDD6F4),
+                color: Color(0xFFC0CAF5),
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -130,9 +130,9 @@ class _HomeScreenState extends State<HomeScreen> {
   ) {
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFF11111B),
+        color: const Color(0xFF1A1B26),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF313244)),
+        border: Border.all(color: const Color(0xFF414868)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -140,7 +140,7 @@ class _HomeScreenState extends State<HomeScreen> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             decoration: const BoxDecoration(
-              color: Color(0xFF181825),
+              color: Color(0xFF16161E),
               borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
             ),
             child: Row(
@@ -149,14 +149,14 @@ class _HomeScreenState extends State<HomeScreen> {
                   readOnly ? Icons.output : Icons.edit,
                   size: 16,
                   color: readOnly
-                      ? const Color(0xFFA6E3A1)
-                      : const Color(0xFF89B4FA),
+                      ? const Color(0xFF9ECE6A)
+                      : const Color(0xFF7AA2F7),
                 ),
                 const SizedBox(width: 8),
                 Text(
                   title,
                   style: const TextStyle(
-                    color: Color(0xFFCDD6F4),
+                    color: Color(0xFFC0CAF5),
                     fontSize: 13,
                     fontWeight: FontWeight.w500,
                   ),
@@ -168,7 +168,7 @@ class _HomeScreenState extends State<HomeScreen> {
             child: CodeForgeWeb(
               controller: controller,
               language: language,
-              editorTheme: atomOneDarkTheme,
+              editorTheme: tokyoNightDarkTheme,
               readOnly: readOnly,
               textStyle: const TextStyle(
                 fontFamily: 'JetBrains Mono, Fira Code, monospace',
