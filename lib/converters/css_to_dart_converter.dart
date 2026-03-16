@@ -43,16 +43,16 @@ class CssToDartConverter {
 
   void _visitRuleSet(RuleSet ruleSet, StringBuffer buffer) {
     final selector = _selectorToString(ruleSet.selectorGroup);
-    final className = _selectorToClassName(selector);
     final declarations = ruleSet.declarationGroup.declarations
         .whereType<Declaration>()
         .toList();
 
     if (declarations.isEmpty) return;
 
-    // Categorize declarations
+    // Categorize declarations into groups
     final textStyleProps = <ConversionResult>[];
     final containerProps = <ConversionResult>[];
+    final decorationProps = <ConversionResult>[];
     final layoutProps = <ConversionResult>[];
     final unsupported = <String>[];
 
@@ -80,58 +80,50 @@ class CssToDartConverter {
         textStyleProps.add(result);
       } else if (_isLayoutProperty(property)) {
         layoutProps.add(result);
+      } else if (_isDecorationProperty(property)) {
+        decorationProps.add(result);
       } else {
         containerProps.add(result);
       }
     }
 
-    buffer.writeln('// CSS: $selector');
+    buffer.writeln('// --- $selector ---');
+    buffer.writeln();
 
-    // Generate TextStyle if text properties exist
     if (textStyleProps.isNotEmpty) {
-      buffer.writeln('final ${className}Style = TextStyle(');
+      buffer.writeln('// TextStyle');
       for (final prop in textStyleProps) {
-        buffer.writeln('  ${prop.dartCode},');
+        buffer.writeln('${prop.dartCode},');
       }
-      buffer.writeln(');');
       buffer.writeln();
     }
 
-    // Generate Container/BoxDecoration for visual properties
-    if (containerProps.isNotEmpty || layoutProps.isNotEmpty) {
-      buffer.writeln('Widget build${_capitalize(className)}() {');
-
-      if (layoutProps.isNotEmpty) {
-        buffer.writeln('  // Layout properties');
-        for (final prop in layoutProps) {
-          buffer.writeln('  ${prop.dartCode};');
-        }
-        buffer.writeln();
+    if (layoutProps.isNotEmpty) {
+      buffer.writeln('// Layout');
+      for (final prop in layoutProps) {
+        buffer.writeln('${prop.dartCode},');
       }
+      buffer.writeln();
+    }
 
-      buffer.writeln('  return Container(');
+    if (containerProps.isNotEmpty) {
+      buffer.writeln('// Container');
       for (final prop in containerProps) {
-        if (_isDecorationProperty(prop.property)) continue;
-        buffer.writeln('    ${prop.dartCode},');
+        buffer.writeln('${prop.dartCode},');
       }
+      buffer.writeln();
+    }
 
-      final decorationProps =
-          containerProps.where((p) => _isDecorationProperty(p.property));
-      if (decorationProps.isNotEmpty) {
-        buffer.writeln('    decoration: BoxDecoration(');
-        for (final prop in decorationProps) {
-          buffer.writeln('      ${prop.dartCode},');
-        }
-        buffer.writeln('    ),');
+    if (decorationProps.isNotEmpty) {
+      buffer.writeln('// BoxDecoration');
+      for (final prop in decorationProps) {
+        buffer.writeln('${prop.dartCode},');
       }
-
-      buffer.writeln('  );');
-      buffer.writeln('}');
       buffer.writeln();
     }
 
     if (unsupported.isNotEmpty) {
-      buffer.writeln('// Unsupported properties: ${unsupported.join(', ')}');
+      buffer.writeln('// Unsupported: ${unsupported.join(', ')}');
       buffer.writeln();
     }
   }
@@ -165,29 +157,6 @@ class CssToDartConverter {
         return selector.name.toString();
       }).join('');
     }).join(', ');
-  }
-
-  String _selectorToClassName(String selector) {
-    return selector
-        .replaceAll('.', '')
-        .replaceAll('#', '')
-        .replaceAll(' ', '_')
-        .replaceAll(',', '_')
-        .replaceAll('>', '_')
-        .replaceAll(':', '_')
-        .replaceAll('-', '_')
-        .split('_')
-        .where((s) => s.isNotEmpty)
-        .toList()
-        .asMap()
-        .entries
-        .map((e) => e.key == 0 ? e.value.toLowerCase() : _capitalize(e.value))
-        .join();
-  }
-
-  String _capitalize(String s) {
-    if (s.isEmpty) return s;
-    return s[0].toUpperCase() + s.substring(1);
   }
 
   bool _isTextStyleProperty(String property) {

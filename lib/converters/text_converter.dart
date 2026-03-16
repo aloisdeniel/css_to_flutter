@@ -98,10 +98,36 @@ class TextConverter extends CssPropertyConverter {
   }
 
   String? _convertLineHeight(String text) {
-    final value = double.tryParse(text.replaceAll('px', ''));
-    if (value == null) return null;
-    if (text.contains('px')) return 'height: ${value / 16} /* $text */';
-    return 'height: $value';
+    final lower = text.toLowerCase().trim();
+
+    if (lower == 'normal') return 'height: 1.2 /* normal */';
+
+    // Percentage: line-height: 150% → 1.5
+    if (lower.endsWith('%')) {
+      final value = double.tryParse(lower.replaceAll('%', ''));
+      if (value != null) return 'height: ${value / 100}';
+      return null;
+    }
+
+    // em/rem: line-height: 1.5em → 1.5 (already a multiplier)
+    if (lower.endsWith('em') || lower.endsWith('rem')) {
+      final value = double.tryParse(lower.replaceAll('rem', '').replaceAll('em', ''));
+      if (value != null) return 'height: $value';
+      return null;
+    }
+
+    // px: line-height: 24px → needs fontSize to compute ratio, output as comment
+    if (lower.endsWith('px')) {
+      final value = double.tryParse(lower.replaceAll('px', ''));
+      if (value != null) return 'height: ${value / 16} /* $text - assumes 16px font */';
+      return null;
+    }
+
+    // Unitless: line-height: 1.5 → direct multiplier
+    final value = double.tryParse(lower);
+    if (value != null) return 'height: $value';
+
+    return null;
   }
 
   String? _convertTextOverflow(String text) {
