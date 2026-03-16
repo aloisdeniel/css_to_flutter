@@ -2,6 +2,8 @@
 
 A web tool that converts CSS snippets to Flutter/Dart code. Write CSS on the left, get the equivalent Flutter properties on the right — grouped by TextStyle, Layout, Container, and BoxDecoration.
 
+> Disclaimer: This is pure vibe-coded slop, use it at your own risk. It’s meant for quick prototyping and learning, not production use 
+
 ## Supported CSS Properties
 
 ### Colors
