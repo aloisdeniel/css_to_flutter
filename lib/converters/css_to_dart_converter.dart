@@ -202,6 +202,8 @@ class CssToDartConverter {
       'flex-grow',
       'flex-shrink',
       'gap',
+      'row-gap',
+      'column-gap',
       'position',
       'top',
       'right',

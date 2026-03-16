@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:code_forge_web/code_forge_web.dart';
 import 'package:flutter/material.dart';
+import 'package:lucide_icons/lucide_icons.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:re_highlight/languages/css.dart';
 import 'package:re_highlight/languages/dart.dart';
 import 'package:re_highlight/styles/tokyo-night-dark.dart';
@@ -92,7 +94,7 @@ class _HomeScreenState extends State<HomeScreen> {
         backgroundColor: const Color(0xFF16161E),
         title: const Row(
           children: [
-            Icon(Icons.transform, color: Color(0xFFBB9AF7)),
+            Icon(LucideIcons.arrowRightLeft, color: Color(0xFFBB9AF7)),
             SizedBox(width: 8),
             Text(
               'CSS to Flutter',
@@ -104,6 +106,16 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
         elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(LucideIcons.github, color: Color(0xFFC0CAF5)),
+            tooltip: 'View on GitHub',
+            onPressed: () => launchUrl(
+              Uri.parse('https://github.com/aloisdeniel/css_to_flutter'),
+            ),
+          ),
+          const SizedBox(width: 8),
+        ],
       ),
       body: Padding(
         padding: const EdgeInsets.all(12),
@@ -128,7 +140,7 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _buildPanelHeader('CSS Input', Icons.edit, const Color(0xFF7AA2F7)),
+          _buildPanelHeader('CSS Input', LucideIcons.pencil, const Color(0xFF7AA2F7)),
           Expanded(
             child: CodeForgeWeb(
               controller: _cssController,
@@ -255,7 +267,7 @@ class _OutputBlockState extends State<_OutputBlock> {
             ),
             child: Row(
               children: [
-                const Icon(Icons.output, size: 16, color: Color(0xFF9ECE6A)),
+                const Icon(LucideIcons.code, size: 16, color: Color(0xFF9ECE6A)),
                 const SizedBox(width: 8),
                 Text(
                   widget.block.selector,

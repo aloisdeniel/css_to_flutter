@@ -16,6 +16,8 @@ class LayoutConverter extends CssPropertyConverter {
         'flex-grow',
         'flex-shrink',
         'gap',
+        'row-gap',
+        'column-gap',
         'overflow',
         'position',
         'opacity',
@@ -37,6 +39,8 @@ class LayoutConverter extends CssPropertyConverter {
       'flex-grow' => 'flex: ${int.tryParse(text) ?? 1}',
       'flex-shrink' => '/* flex-shrink: $text - use Flexible widget */',
       'gap' => _convertGap(text),
+      'row-gap' => _convertRowGap(text),
+      'column-gap' => _convertColumnGap(text),
       'overflow' => _convertOverflow(text),
       'position' => _convertPosition(text),
       'opacity' => 'opacity: ${double.tryParse(text) ?? 1.0}',
@@ -106,9 +110,25 @@ class LayoutConverter extends CssPropertyConverter {
   }
 
   String? _convertGap(String text) {
+    final parts = text.split(RegExp(r'\s+'));
+    final values = parts.map((p) => double.tryParse(p.replaceAll('px', ''))).toList();
+    if (values.isEmpty || values.first == null) return null;
+    if (values.length == 1) {
+      return 'spacing: ${values[0]}';
+    }
+    return 'runSpacing: ${values[0]}, spacing: ${values[1]}';
+  }
+
+  String? _convertRowGap(String text) {
     final value = double.tryParse(text.replaceAll('px', ''));
     if (value == null) return null;
-    return '// Use SizedBox(width: $value) or SizedBox(height: $value) between children';
+    return 'runSpacing: $value';
+  }
+
+  String? _convertColumnGap(String text) {
+    final value = double.tryParse(text.replaceAll('px', ''));
+    if (value == null) return null;
+    return 'spacing: $value';
   }
 
   String? _convertOverflow(String text) {
