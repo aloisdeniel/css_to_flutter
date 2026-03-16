@@ -7,6 +7,7 @@ import 'border_converter.dart';
 import 'layout_converter.dart';
 import 'shadow_converter.dart';
 import 'gradient_converter.dart';
+import 'positioning_converter.dart';
 
 /// Registry that holds all CSS property converters.
 ///
@@ -25,6 +26,7 @@ class ConverterRegistry {
       LayoutConverter(),
       ShadowConverter(),
       GradientConverter(),
+      PositioningConverter(),
     ]);
   }
 

@@ -4,6 +4,14 @@ import 'package:csslib/visitor.dart';
 import 'converter.dart';
 import 'converter_registry.dart';
 
+/// A single converted CSS rule with its selector and grouped Dart output.
+class ConvertedBlock {
+  final String selector;
+  final String dartCode;
+
+  const ConvertedBlock({required this.selector, required this.dartCode});
+}
+
 /// Main engine that parses CSS and converts it to Flutter/Dart code.
 class CssToDartConverter {
   final ConverterRegistry _registry;
@@ -11,45 +19,51 @@ class CssToDartConverter {
   CssToDartConverter({ConverterRegistry? registry})
       : _registry = registry ?? ConverterRegistry();
 
-  /// Parse CSS input and return equivalent Dart code.
-  String convert(String cssInput) {
-    if (cssInput.trim().isEmpty) return '';
+  /// Parse CSS input and return a list of converted blocks, one per rule.
+  List<ConvertedBlock> convert(String cssInput) {
+    if (cssInput.trim().isEmpty) return [];
 
     try {
       final stylesheet = css.parse(cssInput);
-      final buffer = StringBuffer();
-      buffer.writeln("import 'package:flutter/material.dart';");
-      buffer.writeln();
-      _visitStyleSheet(stylesheet, buffer);
-      return buffer.toString();
+      return _visitStyleSheet(stylesheet);
     } catch (e) {
-      return '// Error parsing CSS:\n// $e';
+      return [
+        ConvertedBlock(selector: 'Error', dartCode: '// Error parsing CSS:\n// $e'),
+      ];
     }
   }
 
-  void _visitStyleSheet(StyleSheet stylesheet, StringBuffer buffer) {
+  List<ConvertedBlock> _visitStyleSheet(StyleSheet stylesheet) {
+    final blocks = <ConvertedBlock>[];
     for (final node in stylesheet.topLevels) {
       if (node is RuleSet) {
-        _visitRuleSet(node, buffer);
+        final block = _visitRuleSet(node);
+        if (block != null) blocks.add(block);
       } else if (node is MediaDirective) {
-        _visitMediaDirective(node, buffer);
+        blocks.addAll(_visitMediaDirective(node));
       } else if (node is FontFaceDirective) {
-        _visitFontFaceDirective(node, buffer);
+        blocks.add(ConvertedBlock(
+          selector: '@font-face',
+          dartCode: '// Register fonts in pubspec.yaml instead',
+        ));
       } else if (node is KeyFrameDirective) {
-        _visitKeyFrameDirective(node, buffer);
+        blocks.add(ConvertedBlock(
+          selector: '@keyframes ${node.name?.name ?? ''}',
+          dartCode: '// Use AnimationController + Tween',
+        ));
       }
     }
+    return blocks;
   }
 
-  void _visitRuleSet(RuleSet ruleSet, StringBuffer buffer) {
+  ConvertedBlock? _visitRuleSet(RuleSet ruleSet) {
     final selector = _selectorToString(ruleSet.selectorGroup);
     final declarations = ruleSet.declarationGroup.declarations
         .whereType<Declaration>()
         .toList();
 
-    if (declarations.isEmpty) return;
+    if (declarations.isEmpty) return null;
 
-    // Categorize declarations into groups
     final textStyleProps = <ConversionResult>[];
     final containerProps = <ConversionResult>[];
     final decorationProps = <ConversionResult>[];
@@ -87,63 +101,66 @@ class CssToDartConverter {
       }
     }
 
-    buffer.writeln('// --- $selector ---');
-    buffer.writeln();
+    final buffer = StringBuffer();
 
     if (textStyleProps.isNotEmpty) {
       buffer.writeln('// TextStyle');
       for (final prop in textStyleProps) {
         buffer.writeln('${prop.dartCode},');
       }
-      buffer.writeln();
     }
 
     if (layoutProps.isNotEmpty) {
+      if (buffer.isNotEmpty) buffer.writeln();
       buffer.writeln('// Layout');
       for (final prop in layoutProps) {
         buffer.writeln('${prop.dartCode},');
       }
-      buffer.writeln();
     }
 
     if (containerProps.isNotEmpty) {
+      if (buffer.isNotEmpty) buffer.writeln();
       buffer.writeln('// Container');
       for (final prop in containerProps) {
         buffer.writeln('${prop.dartCode},');
       }
-      buffer.writeln();
     }
 
     if (decorationProps.isNotEmpty) {
+      if (buffer.isNotEmpty) buffer.writeln();
       buffer.writeln('// BoxDecoration');
       for (final prop in decorationProps) {
         buffer.writeln('${prop.dartCode},');
       }
-      buffer.writeln();
     }
 
     if (unsupported.isNotEmpty) {
+      if (buffer.isNotEmpty) buffer.writeln();
       buffer.writeln('// Unsupported: ${unsupported.join(', ')}');
-      buffer.writeln();
     }
+
+    if (buffer.isEmpty) return null;
+
+    return ConvertedBlock(
+      selector: selector,
+      dartCode: buffer.toString().trimRight(),
+    );
   }
 
-  void _visitMediaDirective(MediaDirective node, StringBuffer buffer) {
-    buffer.writeln('// @media query - use MediaQuery or LayoutBuilder');
+  List<ConvertedBlock> _visitMediaDirective(MediaDirective node) {
+    final blocks = <ConvertedBlock>[];
     for (final rule in node.rules) {
-      if (rule is RuleSet) _visitRuleSet(rule, buffer);
+      if (rule is RuleSet) {
+        final block = _visitRuleSet(rule);
+        if (block != null) {
+          blocks.add(ConvertedBlock(
+            selector: '${block.selector} (@media)',
+            dartCode: block.dartCode,
+          ));
+        }
+      }
     }
-  }
-
-  void _visitFontFaceDirective(FontFaceDirective node, StringBuffer buffer) {
-    buffer.writeln('// @font-face - register fonts in pubspec.yaml instead');
-    buffer.writeln();
-  }
-
-  void _visitKeyFrameDirective(KeyFrameDirective node, StringBuffer buffer) {
-    buffer.writeln(
-        '// @keyframes ${node.name?.name ?? ''} - use AnimationController + Tween');
-    buffer.writeln();
+    return blocks;
   }
 
   String _selectorToString(SelectorGroup? group) {
@@ -186,6 +203,12 @@ class CssToDartConverter {
       'flex-shrink',
       'gap',
       'position',
+      'top',
+      'right',
+      'bottom',
+      'left',
+      'z-index',
+      'inset',
     }.contains(property);
   }
 
